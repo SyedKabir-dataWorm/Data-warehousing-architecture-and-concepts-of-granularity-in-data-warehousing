@@ -20,9 +20,9 @@ MonStore's operational database tables can be found in the MonStore account. You
 example, execute the following query:
 select * from MonStore.<table_name>;
 
-![alt text](http://url/to/img.png)
+![alt text](https://github.com/SyedKabir-dataWorm/Data-warehousing-architecture-and-concepts-of-granularity-in-data-warehousing/blob/main/MonStoreDb-1.png)
 
-![alt text](http://url/to/img.png)
+![alt text](https://github.com/SyedKabir-dataWorm/Data-warehousing-architecture-and-concepts-of-granularity-in-data-warehousing/blob/main/MonStoreDb-2.png)
 
 **Tasks**
 
