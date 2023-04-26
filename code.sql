@@ -1,15 +1,13 @@
-
--- Understanding MONSTORE database and tables
 /*
 select * from MONSTORE.ordertable order by customer_id;
 select * from MONSTORE.product;
 select * from MONSTORE.order_items;
 select * from MONSTORE.customer; 
-DESCRIBE MONSTORE.product;
 
 select product_id, list_price from MONSTORE.product order by product_id, list_price;
 */
 
+DESCRIBE MONSTORE.product;
 
 ----------------------------------------Version-1----------------------------
 DROP TABLE ordertimedim1;
@@ -383,6 +381,20 @@ FROM
     productorderpricefact1;
 
 -- creating OrderFact table
+/*
+
+-- This is wrong 
+
+create table TempOrderFact1 as  -- Initially creating a temporary fact table
+select distinct S.store_id, C.suburb, O.order_id, 
+P.product_ID, ot.order_date, c.customer_age
+from MONSTORE.store S, MONSTORE.product P, MONSTORE.order_items O, 
+MONSTORE.customer C, MONSTORE.ordertable OT
+where s.store_id = ot.store_id and
+p.product_id = o.product_id and 
+o.order_id = ot.order_id and
+ot.customer_id = c.customer_id;
+*/
 
 CREATE TABLE temporderfact1
     AS
@@ -471,7 +483,16 @@ SET
 WHERE
     customer_age >= 60;
 
+/*
+-- This is wrong table
 
+create table OrderFact1 as  -- Creating  OrderFact table
+select store_id, order_id, suburb, product_id, quarter, age_group_id,
+count(order_id) as number_of_orders
+from TempOrderFact1
+group by store_id, suburb, order_id,product_id, quarter, age_group_id
+order by store_id, quarter, suburb, order_id, product_id,  age_group_id;
+*/
 
 CREATE TABLE orderfact1
     AS  -- Creating  OrderFact table
@@ -504,4 +525,318 @@ SELECT
     *
 FROM
     orderfact1;
+
+
+----------------------------------------------------------------------------
+--------------------------Version-2--------------------------------------------
+
+DROP TABLE storedim2;
+
+DROP TABLE staffdim2;
+
+DROP TABLE companydim2;
+
+DROP TABLE categoryofproductdim2;
+
+DROP TABLE typeofstaffdim2;
+
+DROP TABLE staffworkdurationdim2;
+
+DROP TABLE productgrouplistdim2;
+
+DROP TABLE productgroupcompanybridge2;
+
+DROP TABLE orderdim2;
+
+DROP TABLE orderdimtemp2;
+
+DROP TABLE customerdim2;
+
+DROP TABLE tempstafffact2;
+
+DROP TABLE stafffact2;
+
+DROP TABLE productorderpricefact2;
+
+DROP TABLE orderfact2_temp;
+
+DROP TABLE orderfact2;
+
+-- Creating the dimesion related to store dimension
+-- named as StoreDim2
+
+CREATE TABLE storedim2
+    AS
+        SELECT DISTINCT
+            store_id
+        FROM
+            monstore.store;
+
+-- Creating the dimesion related to type of staff dimension
+-- named as TypeOfStaffDim2
+
+CREATE TABLE typeofstaffdim2 (
+    staff_type             VARCHAR2(10),
+    staff_type_description VARCHAR2(100)
+);
+
+INSERT INTO typeofstaffdim2 VALUES (
+    'Part_time',
+    'less than 20 working hours per week'
+);
+
+INSERT INTO typeofstaffdim2 VALUES (
+    'Full_time',
+    'more than 20 working hours per week'
+);
+
+SELECT
+    *
+FROM
+    typeofstaffdim2;
+
+-- Creating the dimesion related to staff working duration
+-- named as StaffWorkDurationDim2
+
+CREATE TABLE staffworkdurationdim2 (
+    work_duration_type        VARCHAR2(20),
+    work_duration_description VARCHAR2(50)
+);
+
+INSERT INTO staffworkdurationdim2 VALUES (
+    'new beginner',
+    'less than 3 years, inclusive'
+);
+
+INSERT INTO staffworkdurationdim2 VALUES (
+    'mid-level',
+    'more than 3 years'
+);
+
+SELECT
+    *
+FROM
+    staffworkdurationdim2;
+
+-- Creating the dimesion related to staff
+-- named as StaffDim2
+
+CREATE TABLE staffdim2
+    AS
+        SELECT DISTINCT
+            staff_id
+        FROM
+            monstore.staff;
+
+SELECT
+    *
+FROM
+    staffdim2;
+
+-- Creating the dimesion related to category of product
+-- named as CategoryOfProductDim2
+DROP TABLE categoryofproductdim2;
+
+/*create table CategoryOfProductDim2
+as select * from MONSTORE.product_category;*/
+
+CREATE TABLE categoryofproductdim2
+    AS
+        SELECT DISTINCT
+            p.product_id,
+            c.type_name
+        FROM   --p.type_id,
+            monstore.product          p,
+            monstore.product_category c
+        WHERE
+            p.type_id = c.type_id;
+
+SELECT
+    *
+FROM
+    categoryofproductdim2;
+
+-- Creating the dimesion related to company name
+-- named as CompanyDim2
+
+CREATE TABLE companydim2
+    AS
+        SELECT DISTINCT
+            company_id,
+            company_name
+        FROM
+            monstore.company;
+
+SELECT
+    *
+FROM
+    companydim2;
+
+-- Creating the dimesion related to product
+-- named as ProductGroupListDim2
+
+CREATE TABLE productgroupdimtemp2
+    AS
+        SELECT DISTINCT
+            ot.order_id,
+            ot.product_id,
+            round(1.0 / COUNT(c.company_id), 2) AS weightfactor,
+            LISTAGG(c.company_id, '_') WITHIN GROUP(
+            ORDER BY
+                c.company_id
+            )                                   AS storegrouplist
+        FROM
+            monstore.product         p,
+            monstore.order_items     ot,
+            monstore.product_company c
+        WHERE
+                ot.product_id = p.product_id
+            AND p.product_id = c.product_id
+        GROUP BY
+            ot.product_id,
+            ot.order_id;
+
+CREATE TABLE productgrouplistdim2
+    AS
+        SELECT DISTINCT
+            LISTAGG(product_id, '_') WITHIN GROUP(
+            ORDER BY
+                order_id
+            ) AS productgrouplistid,
+            weightfactor,
+            storegrouplist
+        FROM
+            productgroupdimtemp1
+        GROUP BY
+            order_id,
+            weightfactor,
+            storegrouplist;
+
+SELECT
+    *
+FROM
+    productgrouplistdim2;
+
+-- Creating the dimesion related to a bridge table
+-- named as ProductCompanyBridge1
+
+CREATE TABLE productgroupcompanybridge2
+    AS
+        SELECT DISTINCT
+            p.productgrouplistid,
+            c.company_id
+        FROM
+            productgrouplistdim2     p,
+            monstore.product_company c
+        WHERE
+            p.productgrouplistid LIKE ( '%'
+                                        || c.product_id
+                                        || '%' );
+
+SELECT
+    *
+FROM
+    productgroupcompanybridge2;
+
+-- Creating the dimesion related to a order tables
+-- named as OrderDim2
+
+CREATE TABLE orderdimtemp2
+    AS
+        SELECT DISTINCT
+            o.order_id,
+            ot.order_date
+        FROM
+            monstore.order_items o,
+            monstore.ordertable  ot
+        WHERE
+            o.order_id = ot.order_id;
+
+ALTER TABLE orderdimtemp2 ADD (
+    quarter CHAR(1)
+);
+
+UPDATE orderdimtemp2
+SET
+    quarter = '1'
+WHERE
+    to_char(order_date, 'Mon') IN ( 'Jan', 'Feb', 'Mar' );
+
+UPDATE orderdimtemp2
+SET
+    quarter = '2'
+WHERE
+    to_char(order_date, 'Mon') IN ( 'Apr', 'May', 'Jun' );
+
+UPDATE orderdimtemp2
+SET
+    quarter = '3'
+WHERE
+    to_char(order_date, 'Mon') IN ( 'Jul', 'Aug', 'Sep' );
+
+UPDATE orderdimtemp2
+SET
+    quarter = '4'
+WHERE
+    to_char(order_date, 'Mon') IN ( 'Oct', 'Nov', 'Dec' );
+
+SELECT
+    *
+FROM
+    orderdimtemp2;
+
+CREATE TABLE orderdim2
+    AS
+        SELECT
+            order_id,
+            quarter
+        FROM
+            orderdimtemp2;
+
+SELECT
+    *
+FROM
+    orderdim2;
+
+-- Creating the dimesion related to a customer dimension
+-- named as customerdim2
+
+CREATE TABLE customerdim2
+    AS
+        SELECT DISTINCT
+            customer_id,
+            suburb,
+            customer_age
+        FROM
+            monstore.customer;
+
+ALTER TABLE customerdim2 ADD (
+    age_group VARCHAR2(30)
+);
+
+UPDATE customerdim2
+SET
+    age_group = 'early-age'
+WHERE
+        customer_age >= 18
+    AND customer_age <= 40;
+
+UPDATE customerdim2
+SET
+    age_group = 'middle-age'
+WHERE
+        customer_age >= 41
+    AND customer_age <= 59;
+
+UPDATE customerdim2
+SET
+    age_group = 'old-age'
+WHERE
+    customer_age >= 60;
+
+SELECT
+    *
+FROM
+    customerdim2;
+
 
