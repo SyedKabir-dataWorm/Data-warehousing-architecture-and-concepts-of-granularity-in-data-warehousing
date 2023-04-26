@@ -1,7 +1,6 @@
 
--- Understanding MONSTROE database tables
+-- Understanding MONSTORE database and tables
 /*
-
 select * from MONSTORE.ordertable order by customer_id;
 select * from MONSTORE.product;
 select * from MONSTORE.order_items;
@@ -10,7 +9,6 @@ DESCRIBE MONSTORE.product;
 
 select product_id, list_price from MONSTORE.product order by product_id, list_price;
 */
-
 
 
 ----------------------------------------Version-1----------------------------
@@ -213,10 +211,27 @@ SELECT
 FROM
     companydim1;
 
-
+/*
 -- Creating the dimesion related to product
 -- named as ProductDim1
+create table ProductDim1 as
+select p.product_id,
+round(1.0/count(C.Company_id),2) as WeightFactor,
+listagg (C.Company_id, '_') within group
+(order by C.Company_id) as StoreGroupList
+from monstore.Product P,  MONSTORE.product_company C
+where P.product_ID = C.product_ID
+group by P.product_ID;
 
+select * from ProductDim1;
+
+-- Creating the dimesion related to a bridge table
+-- named as ProductCompanyBridge1
+create table ProductCompanyBridge1 as
+select * from MONSTORE.product_company;
+
+select * from ProductCompanyBridge1;
+*/
 CREATE TABLE productgroupdimtemp1
     AS
         SELECT DISTINCT
@@ -369,17 +384,124 @@ FROM
 
 -- creating OrderFact table
 
+CREATE TABLE temporderfact1
+    AS
+        SELECT DISTINCT
+            s.store_id,
+            c.suburb,
+            ot.order_id,
+            LISTAGG(ot.product_id, '_') WITHIN GROUP(
+            ORDER BY
+                ot.order_id
+            ) AS productgrouplistid,
+            o.order_date,
+            c.customer_age
+        FROM
+            monstore.store       s,
+            monstore.order_items ot,
+            monstore.customer    c,
+            monstore.ordertable  o
+        WHERE
+                s.store_id = o.store_id
+            AND ot.order_id = o.order_id
+            AND o.customer_id = c.customer_id
+        GROUP BY
+            s.store_id,
+            c.suburb,
+            ot.order_id,
+            o.order_date,
+            c.customer_age;
+
+ALTER TABLE temporderfact1  -- adding quarter attribute in temporderfact1 table
+
+ ADD (
+    quarter NUMBER(1)
+);
+
+UPDATE temporderfact1
+SET
+    quarter = 1
+WHERE
+        to_char(order_date, 'MM') >= '01'
+    AND to_char(order_date, 'MM') <= '03';
+
+UPDATE temporderfact1
+SET
+    quarter = 2
+WHERE
+        to_char(order_date, 'MM') >= '04'
+    AND to_char(order_date, 'MM') <= '06';
+
+UPDATE temporderfact1
+SET
+    quarter = 3
+WHERE
+        to_char(order_date, 'MM') >= '07'
+    AND to_char(order_date, 'MM') <= '09';
+
+UPDATE temporderfact1
+SET
+    quarter = 4
+WHERE
+    quarter IS NULL;
+
+ALTER TABLE temporderfact1  -- adding age_group_id in temporderfact table
+
+ ADD (
+    age_group_id VARCHAR2(1)
+);
+
+UPDATE temporderfact1
+SET
+    age_group_id = 1
+WHERE
+        customer_age >= 18
+    AND customer_age <= 40;
+
+UPDATE temporderfact1
+SET
+    age_group_id = 2
+WHERE
+        customer_age >= 41
+    AND customer_age <= 59;
+
+UPDATE temporderfact1
+SET
+    age_group_id = 3
+WHERE
+    customer_age >= 60;
 
 
 
-create table TempOrderFact1 as  -- Initially creating a temporary fact table
-select distinct S.store_id, C.suburb, O.order_id, 
-P.product_ID, ot.order_date, c.customer_age
-from MONSTORE.store S, MONSTORE.product P, MONSTORE.order_items O, 
-MONSTORE.customer C, MONSTORE.ordertable OT
-where s.store_id = ot.store_id and
-p.product_id = o.product_id and 
-o.order_id = ot.order_id and
-ot.customer_id = c.customer_id;
+CREATE TABLE orderfact1
+    AS  -- Creating  OrderFact table
+        SELECT
+            store_id,
+            order_id,
+            suburb,
+            productgrouplistid,
+            quarter,
+            age_group_id,
+            COUNT(order_id) AS number_of_orders
+        FROM
+            temporderfact1
+        GROUP BY
+            store_id,
+            suburb,
+            order_id,
+            productgrouplistid,
+            quarter,
+            age_group_id
+        ORDER BY
+            store_id,
+            quarter,
+            suburb,
+            order_id,
+            productgrouplistid,
+            age_group_id;
 
+SELECT
+    *
+FROM
+    orderfact1;
 
