@@ -1,13 +1,17 @@
+
+-- Understanding MONSTROE database tables
 /*
+
 select * from MONSTORE.ordertable order by customer_id;
 select * from MONSTORE.product;
 select * from MONSTORE.order_items;
 select * from MONSTORE.customer; 
+DESCRIBE MONSTORE.product;
 
 select product_id, list_price from MONSTORE.product order by product_id, list_price;
 */
 
-DESCRIBE MONSTORE.product;
+
 
 ----------------------------------------Version-1----------------------------
 DROP TABLE ordertimedim1;
@@ -213,23 +217,169 @@ FROM
 -- Creating the dimesion related to product
 -- named as ProductDim1
 
-/*
-create table ProductDim1 as
-select p.product_id,
-round(1.0/count(C.Company_id),2) as WeightFactor,
-listagg (C.Company_id, '_') within group
-(order by C.Company_id) as StoreGroupList
-from monstore.Product P,  MONSTORE.product_company C
-where P.product_ID = C.product_ID
-group by P.product_ID;
+CREATE TABLE productgroupdimtemp1
+    AS
+        SELECT DISTINCT
+            ot.order_id,
+            ot.product_id,
+            round(1.0 / COUNT(c.company_id), 2) AS weightfactor,
+            LISTAGG(c.company_id, '_') WITHIN GROUP(
+            ORDER BY
+                c.company_id
+            )                                   AS storegrouplist
+        FROM
+            monstore.product         p,
+            monstore.order_items     ot,
+            monstore.product_company c
+        WHERE
+                ot.product_id = p.product_id
+            AND p.product_id = c.product_id
+        GROUP BY
+            ot.product_id,
+            ot.order_id;
 
-select * from ProductDim1;
+DROP TABLE productgrouplistdim1;
+
+CREATE TABLE productgrouplistdim1
+    AS
+        SELECT DISTINCT
+            LISTAGG(product_id, '_') WITHIN GROUP(
+            ORDER BY
+                order_id
+            ) AS productgrouplistid,
+            weightfactor,
+            storegrouplist
+        FROM
+            productgroupdimtemp1
+        GROUP BY
+            order_id,
+            weightfactor,
+            storegrouplist;
+
+SELECT
+    *
+FROM
+    productgrouplistdim1;
 
 -- Creating the dimesion related to a bridge table
 -- named as ProductCompanyBridge1
-create table ProductCompanyBridge1 as
-select * from MONSTORE.product_company;
 
-select * from ProductCompanyBridge1;
-*/
+DROP TABLE productgroupcompanybridge1;
+
+CREATE TABLE productgroupcompanybridge1
+    AS
+        SELECT DISTINCT
+            p.productgrouplistid,
+            c.company_id
+        FROM
+            productgrouplistdim1     p,
+            monstore.product_company c
+        WHERE
+            p.productgrouplistid LIKE ( '%'
+                                        || c.product_id
+                                        || '%' );
+
+SELECT
+    *
+FROM
+    productgroupcompanybridge1;
+
+-- Creating the dimesion related to a order tables
+-- named as OrderDim2
+
+-----------------------------------------------------------------
+--------------- CREATING FACT TABLES ----------------------------
+
+-- Creating staffFact1 Table
+
+CREATE TABLE tempstafffact1 -- At first, creating TempStaffFact1 table
+    AS
+        SELECT DISTINCT
+            st.store_id,
+            s.staff_type,
+            s.staff_since
+        FROM
+            monstore.staff s,
+            monstore.store st
+        WHERE
+            s.store_id = st.store_id;
+
+ALTER TABLE tempstafffact1 ADD (
+    work_duration_type VARCHAR2(20)
+);
+
+UPDATE tempstafffact1
+SET
+    work_duration_type = 'new beginner'
+WHERE
+    ( current_date - staff_since ) / 365 <= 3;
+
+UPDATE tempstafffact1
+SET
+    work_duration_type = 'mid-level'
+WHERE
+    ( current_date - staff_since ) / 365 > 3;
+
+CREATE TABLE stafffact1
+    AS
+        SELECT
+            store_id,
+            staff_type,
+            work_duration_type,
+            COUNT(*) AS number_of_staffs
+        FROM
+            tempstafffact1
+        GROUP BY
+            staff_type,
+            work_duration_type,
+            store_id;
+
+SELECT
+    *
+FROM
+    stafffact1;
+
+-- Creating ProductOrderPriceFact table;
+
+CREATE TABLE productorderpricefact1
+    AS
+        SELECT DISTINCT
+            s.store_id,
+            p.type_id,
+            SUM(o.quantity * o.list_price) AS total_order_price,
+            COUNT(p.product_id)            AS number_of_products
+        FROM
+            monstore.stock       s,
+            monstore.product     p,
+            monstore.order_items o
+        WHERE
+                s.product_id = p.product_id
+            AND p.product_id = o.product_id
+        GROUP BY
+            s.store_id,
+            p.type_id
+        ORDER BY
+            s.store_id,
+            p.type_id;
+
+SELECT
+    *
+FROM
+    productorderpricefact1;
+
+-- creating OrderFact table
+
+
+
+
+create table TempOrderFact1 as  -- Initially creating a temporary fact table
+select distinct S.store_id, C.suburb, O.order_id, 
+P.product_ID, ot.order_date, c.customer_age
+from MONSTORE.store S, MONSTORE.product P, MONSTORE.order_items O, 
+MONSTORE.customer C, MONSTORE.ordertable OT
+where s.store_id = ot.store_id and
+p.product_id = o.product_id and 
+o.order_id = ot.order_id and
+ot.customer_id = c.customer_id;
+
 
