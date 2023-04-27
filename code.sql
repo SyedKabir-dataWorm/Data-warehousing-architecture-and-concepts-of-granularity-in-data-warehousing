@@ -10,7 +10,6 @@ DESCRIBE MONSTORE.product;
 select product_id, list_price from MONSTORE.product order by product_id, list_price;
 */
 
-
 ----------------------------------------Version-1----------------------------
 DROP TABLE ordertimedim1;
 
@@ -211,27 +210,8 @@ SELECT
 FROM
     companydim1;
 
-/*
--- Creating the dimesion related to product
--- named as ProductDim1
-create table ProductDim1 as
-select p.product_id,
-round(1.0/count(C.Company_id),2) as WeightFactor,
-listagg (C.Company_id, '_') within group
-(order by C.Company_id) as StoreGroupList
-from monstore.Product P,  MONSTORE.product_company C
-where P.product_ID = C.product_ID
-group by P.product_ID;
+DROP TABLE productgroupdimtemp1;
 
-select * from ProductDim1;
-
--- Creating the dimesion related to a bridge table
--- named as ProductCompanyBridge1
-create table ProductCompanyBridge1 as
-select * from MONSTORE.product_company;
-
-select * from ProductCompanyBridge1;
-*/
 CREATE TABLE productgroupdimtemp1
     AS
         SELECT DISTINCT
@@ -299,11 +279,10 @@ SELECT
 FROM
     productgroupcompanybridge1;
 
--- Creating the dimesion related to a order tables
--- named as OrderDim2
+
 
 -----------------------------------------------------------------
---------------- CREATING FACT TABLES ----------------------------
+--------------- CREATING FACT TABLES FOR VERSION-1 ----------------------------
 
 -- Creating staffFact1 Table
 
@@ -383,20 +362,6 @@ FROM
     productorderpricefact1;
 
 -- creating OrderFact table
-/*
-
--- This is wrong 
-
-create table TempOrderFact1 as  -- Initially creating a temporary fact table
-select distinct S.store_id, C.suburb, O.order_id, 
-P.product_ID, ot.order_date, c.customer_age
-from MONSTORE.store S, MONSTORE.product P, MONSTORE.order_items O, 
-MONSTORE.customer C, MONSTORE.ordertable OT
-where s.store_id = ot.store_id and
-p.product_id = o.product_id and 
-o.order_id = ot.order_id and
-ot.customer_id = c.customer_id;
-*/
 
 CREATE TABLE temporderfact1
     AS
@@ -485,16 +450,7 @@ SET
 WHERE
     customer_age >= 60;
 
-/*
--- This is wrong table
 
-create table OrderFact1 as  -- Creating  OrderFact table
-select store_id, order_id, suburb, product_id, quarter, age_group_id,
-count(order_id) as number_of_orders
-from TempOrderFact1
-group by store_id, suburb, order_id,product_id, quarter, age_group_id
-order by store_id, quarter, suburb, order_id, product_id,  age_group_id;
-*/
 
 CREATE TABLE orderfact1
     AS  -- Creating  OrderFact table
@@ -528,138 +484,6 @@ SELECT
 FROM
     orderfact1;
 
---------------------------------------------------------------------------
--------------------------Queries------------------------------------------
-/* Q.1: How many orders were placed in store one during quarter 1 and 
-ordered by the customer(s) from Marion?*/
-
-SELECT
-    store_id,
-    quarter,
-    suburb,
-    SUM(number_of_orders)
-FROM
-    orderfact1
-WHERE
-        lower(store_id) = 'store1'
-    AND quarter = 1
-    AND lower(suburb) = 'marion'
-GROUP BY
-    store_id,
-    quarter,
-    suburb;
-
-/* Q.2: How many orders were placed by each customer age group? */
-
-SELECT
-    o.age_group_id,
-    c.age_group_description,
-    SUM(number_of_orders)
-FROM
-    orderfact1           o,
-    customeragegroupdim1 c
-WHERE
-    o.age_group_id = c.age_group_id
-GROUP BY
-    o.age_group_id,
-    c.age_group_description
-ORDER BY
-    age_group_id;
-
-/* Q.3: How many orders were placed that include at least one product 
-supplied by Company07? */
-
-SELECT
-    b.company_id,
-    SUM(o.number_of_orders) AS total_orders
-FROM
-    orderfact1                 o,
-    productgrouplistdim1       p,
-    productgroupcompanybridge1 b
-WHERE
-        o.productgrouplistid = p.productgrouplistid
-    AND p.productgrouplistid = b.productgrouplistid
-    AND b.company_id = 'Company07'
-GROUP BY
-    b.company_id;
-
-/* Q.4: What is the total order price for Kid Bicycles? */
-
-SELECT
-    c.type_name,
-    SUM(p.total_order_price)
-FROM
-    productorderpricefact1 p,
-    categoryofproductdim1  c
-WHERE
-        p.type_id = c.type_id
-    AND lower(c.type_name) = 'kid bicycles'
-GROUP BY
-    c.type_name;
-
-/* Q.5: What is the total order price placed 
-    in store one belonging to Road Bikes?*/
-
-SELECT
-    p.store_id,
-    c.type_name,
-    SUM(p.total_order_price) AS total_order_price
-FROM
-    productorderpricefact1 p,
-    categoryofproductdim1  c
-WHERE
-        p.type_id = c.type_id
-    AND lower(c.type_name) = 'road bikes'
-    AND p.store_id = 'Store1'
-GROUP BY
-    p.store_id,
-    c.type_name;
-
-/* Q.6: How many products in store one belong to Comfort Bicycles?*/
-
-SELECT
-    p.store_id,
-    c.type_name,
-    SUM(p.number_of_products) AS number_of_products
-FROM
-    productorderpricefact1 p,
-    categoryofproductdim1  c
-WHERE
-        p.type_id = c.type_id
-    AND lower(c.type_name) = 'comfort bicycles'
-    AND p.store_id = 'Store1'
-GROUP BY
-    p.store_id,
-    c.type_name;
-
-/* Q.7: How many part-time staff work in store one?*/
-
-SELECT
-    store_id,
-    staff_type,
-    SUM(number_of_staffs) AS number_of_staffs
-FROM
-    stafffact1
-WHERE
-        store_id = 'Store1'
-    AND lower(staff_type) = 'part_time'
-GROUP BY
-    store_id,
-    staff_type;
-
-/* Q.8: How many staff have worked for more than three years in the Monstore?*/
-
-SELECT
-    s.work_duration_type,
-    SUM(s.number_of_staffs) AS number_of_staffs
-FROM
-    stafffact1            s,
-    staffworkdurationdim1 d
-WHERE
-        s.work_duration_type = d.work_duration_type
-    AND lower(d.work_duration_description) = 'more than 3 years'
-GROUP BY
-    s.work_duration_type;
 
 ----------------------------------------------------------------------------
 --------------------------Version-2--------------------------------------------
@@ -1061,23 +885,7 @@ SELECT
 FROM
     productorderpricefact2;
 
--- Creating  OrderFact table
-/*
--- Wrong table
-
-create table OrderFact2 as  
-select s.store_id, c.customer_id, ot.product_id, ot.order_id,
-count(ot.order_id) as number_of_orders   --(1.0/count(st.order_id))
-from MONSTORE.store s, Monstore.ordertable o, 
-Monstore.customer c, Monstore.order_items ot
-where ot.order_id = o.order_id and 
-s.store_id = o.store_id and
-o.customer_id = c.customer_id
-group by s.store_id, c.customer_id, ot.product_id, ot.order_id
-order by s.store_id, c.customer_id, ot.product_id, ot.order_id;
-
-select * from orderfact2;
-*/
+-- Creating  OrderFact2 table
 
 DROP TABLE orderfact2_temp;
 
@@ -1138,3 +946,134 @@ SELECT
 FROM
     orderfact2;
 
+-------------------------------------------------------------------------------
+----------------------------queries-------------------------------------------
+/* How many orders were placed in store one during quarter 1 and ordered by the
+customer(s) from Marion?*/
+
+SELECT
+    c.suburb,
+    o.quarter,
+    f.store_id,
+    SUM(f.number_of_orders)
+FROM
+    orderdim2    o,
+    customerdim2 c,
+    orderfact2   f
+WHERE
+        o.order_id = f.order_id
+    AND f.customer_id = c.customer_id
+    AND lower(f.store_id) = 'store1'
+    AND lower(c.suburb) = 'marion'
+    AND quarter = '1'
+GROUP BY
+    c.suburb,
+    o.quarter,
+    f.store_id;
+
+/* How many orders were placed by each customer age group? */
+
+SELECT
+    c.age_group,
+    SUM(o.number_of_orders) AS total_orders
+FROM
+    orderfact2   o,
+    customerdim2 c
+WHERE
+    c.customer_id = o.customer_id
+GROUP BY
+    c.age_group;
+
+/* How many orders were placed that include at least one product supplied by
+Company07? */
+
+SELECT
+    b.company_id,
+    SUM(o.number_of_orders) AS total_orders
+FROM
+    orderfact2                 o,
+    productgrouplistdim2       p,
+    productgroupcompanybridge2 b
+WHERE
+        o.productgrouplistid = p.productgrouplistid
+    AND p.productgrouplistid = b.productgrouplistid
+    AND b.company_id = 'Company07'
+GROUP BY
+    b.company_id;
+
+/* Q.4: What is the total order price for Kid Bicycles? */
+
+SELECT
+    c.type_name,
+    SUM(p.order_quantity * p.order_list_price) AS total_order_price
+FROM
+    productorderpricefact2 p,
+    categoryofproductdim2  c
+WHERE
+        p.product_id = c.product_id
+    AND lower(c.type_name) = 'kid bicycles'
+GROUP BY
+    c.type_name;
+
+/*Q.5: What is the total order price placed in store one belonging to Road Bikes?*/
+
+SELECT
+    p.store_id,
+    c.type_name,
+    SUM(p.order_quantity * p.order_list_price) AS total_order_price
+FROM
+    productorderpricefact2 p,
+    categoryofproductdim2  c
+WHERE
+        p.product_id = c.product_id
+    AND lower(c.type_name) = 'road bikes'
+    AND p.store_id = 'Store1'
+GROUP BY
+    p.store_id,
+    c.type_name;
+
+/*Q.6: How many products in store one belong to Comfort Bicycles?*/
+
+SELECT
+    p.store_id,
+    c.type_name,
+    SUM(p.number_of_products) AS number_of_products
+FROM
+    productorderpricefact2 p,
+    categoryofproductdim2  c
+WHERE
+        p.product_id = c.product_id
+    AND lower(c.type_name) = 'comfort bicycles'
+    AND p.store_id = 'Store1'
+GROUP BY
+    p.store_id,
+    c.type_name;
+
+/*Q.7: How many part-time staff work in store one?*/
+
+SELECT
+    store_id,
+    staff_type,
+    SUM(number_of_staffs) AS number_of_staffs
+FROM
+    stafffact2
+WHERE
+        store_id = 'Store1'
+    AND lower(staff_type) = 'part_time'
+GROUP BY
+    store_id,
+    staff_type;
+
+/*Q.8: How many staff have worked for more than three years in the Monstore?*/
+
+SELECT
+    s.work_duration_type,
+    SUM(s.number_of_staffs) AS number_of_staffs
+FROM
+    stafffact2            s,
+    staffworkdurationdim2 d
+WHERE
+        s.work_duration_type = d.work_duration_type
+    AND lower(d.work_duration_description) = 'more than 3 years'
+GROUP BY
+    s.work_duration_type;
