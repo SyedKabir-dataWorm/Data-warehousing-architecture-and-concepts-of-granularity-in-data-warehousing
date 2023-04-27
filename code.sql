@@ -1,13 +1,15 @@
+
+-- Understanding MONSTORE database and it's tables
 /*
 select * from MONSTORE.ordertable order by customer_id;
 select * from MONSTORE.product;
 select * from MONSTORE.order_items;
 select * from MONSTORE.customer; 
+DESCRIBE MONSTORE.product;
 
 select product_id, list_price from MONSTORE.product order by product_id, list_price;
 */
 
-DESCRIBE MONSTORE.product;
 
 ----------------------------------------Version-1----------------------------
 DROP TABLE ordertimedim1;
@@ -526,6 +528,138 @@ SELECT
 FROM
     orderfact1;
 
+--------------------------------------------------------------------------
+-------------------------Queries------------------------------------------
+/* Q.1: How many orders were placed in store one during quarter 1 and 
+ordered by the customer(s) from Marion?*/
+
+SELECT
+    store_id,
+    quarter,
+    suburb,
+    SUM(number_of_orders)
+FROM
+    orderfact1
+WHERE
+        lower(store_id) = 'store1'
+    AND quarter = 1
+    AND lower(suburb) = 'marion'
+GROUP BY
+    store_id,
+    quarter,
+    suburb;
+
+/* Q.2: How many orders were placed by each customer age group? */
+
+SELECT
+    o.age_group_id,
+    c.age_group_description,
+    SUM(number_of_orders)
+FROM
+    orderfact1           o,
+    customeragegroupdim1 c
+WHERE
+    o.age_group_id = c.age_group_id
+GROUP BY
+    o.age_group_id,
+    c.age_group_description
+ORDER BY
+    age_group_id;
+
+/* Q.3: How many orders were placed that include at least one product 
+supplied by Company07? */
+
+SELECT
+    b.company_id,
+    SUM(o.number_of_orders) AS total_orders
+FROM
+    orderfact1                 o,
+    productgrouplistdim1       p,
+    productgroupcompanybridge1 b
+WHERE
+        o.productgrouplistid = p.productgrouplistid
+    AND p.productgrouplistid = b.productgrouplistid
+    AND b.company_id = 'Company07'
+GROUP BY
+    b.company_id;
+
+/* Q.4: What is the total order price for Kid Bicycles? */
+
+SELECT
+    c.type_name,
+    SUM(p.total_order_price)
+FROM
+    productorderpricefact1 p,
+    categoryofproductdim1  c
+WHERE
+        p.type_id = c.type_id
+    AND lower(c.type_name) = 'kid bicycles'
+GROUP BY
+    c.type_name;
+
+/* Q.5: What is the total order price placed 
+    in store one belonging to Road Bikes?*/
+
+SELECT
+    p.store_id,
+    c.type_name,
+    SUM(p.total_order_price) AS total_order_price
+FROM
+    productorderpricefact1 p,
+    categoryofproductdim1  c
+WHERE
+        p.type_id = c.type_id
+    AND lower(c.type_name) = 'road bikes'
+    AND p.store_id = 'Store1'
+GROUP BY
+    p.store_id,
+    c.type_name;
+
+/* Q.6: How many products in store one belong to Comfort Bicycles?*/
+
+SELECT
+    p.store_id,
+    c.type_name,
+    SUM(p.number_of_products) AS number_of_products
+FROM
+    productorderpricefact1 p,
+    categoryofproductdim1  c
+WHERE
+        p.type_id = c.type_id
+    AND lower(c.type_name) = 'comfort bicycles'
+    AND p.store_id = 'Store1'
+GROUP BY
+    p.store_id,
+    c.type_name;
+
+/* Q.7: How many part-time staff work in store one?*/
+
+SELECT
+    store_id,
+    staff_type,
+    SUM(number_of_staffs) AS number_of_staffs
+FROM
+    stafffact1
+WHERE
+        store_id = 'Store1'
+    AND lower(staff_type) = 'part_time'
+GROUP BY
+    store_id,
+    staff_type;
+
+/* Q.8: How many staff have worked for more than three years in the Monstore?*/
+
+SELECT
+    s.work_duration_type,
+    SUM(s.number_of_staffs) AS number_of_staffs
+FROM
+    stafffact1            s,
+    staffworkdurationdim1 d
+WHERE
+        s.work_duration_type = d.work_duration_type
+    AND lower(d.work_duration_description) = 'more than 3 years'
+GROUP BY
+    s.work_duration_type;
 
 ----------------------------------------------------------------------------
 --------------------------Version-2--------------------------------------------
@@ -839,4 +973,168 @@ SELECT
 FROM
     customerdim2;
 
+
+----------------------------------------------------------------------------
+--------------------------fact table-----------------------------------------
+
+-- Creating staffFact1 Table
+
+CREATE TABLE tempstafffact2 -- At first, creating TempStaffFact1 table
+    AS
+        SELECT DISTINCT
+            s.staff_id,
+            st.store_id,
+            s.staff_type,
+            s.staff_since
+        FROM
+            monstore.staff s,
+            monstore.store st
+        WHERE
+            s.store_id = st.store_id;
+
+ALTER TABLE tempstafffact2 ADD (
+    work_duration_type VARCHAR2(20)
+);
+
+UPDATE tempstafffact2
+SET
+    work_duration_type = 'new beginner'
+WHERE
+    ( current_date - staff_since ) / 365 <= 3;
+
+UPDATE tempstafffact2
+SET
+    work_duration_type = 'mid-level'
+WHERE
+    ( current_date - staff_since ) / 365 > 3;
+
+CREATE TABLE stafffact2
+    AS
+        SELECT
+            staff_id,
+            store_id,
+            staff_type,
+            work_duration_type,
+            COUNT(*) AS number_of_staffs
+        FROM
+            tempstafffact2
+        GROUP BY
+            staff_id,
+            staff_type,
+            work_duration_type,
+            store_id;
+
+SELECT
+    *
+FROM
+    stafffact2;
+
+-- Creating ProductOrderPriceFact2 table;
+DROP TABLE productorderpricefact2;
+
+CREATE TABLE productorderpricefact2
+    AS
+        SELECT DISTINCT
+            s.store_id,
+            p.product_id,
+            o.order_id,
+            o.quantity          AS order_quantity,
+            o.list_price        AS order_list_price,
+            COUNT(p.product_id) AS number_of_products
+        FROM
+            monstore.stock       s,
+            monstore.product     p,
+            monstore.order_items o
+        WHERE
+                s.product_id = p.product_id
+            AND p.product_id = o.product_id
+        GROUP BY
+            s.store_id,
+            p.type_id,
+            p.product_id,
+            o.order_id,
+            o.quantity,
+            o.list_price;
+
+SELECT
+    *
+FROM
+    productorderpricefact2;
+
+-- Creating  OrderFact table
+/*
+-- Wrong table
+
+create table OrderFact2 as  
+select s.store_id, c.customer_id, ot.product_id, ot.order_id,
+count(ot.order_id) as number_of_orders   --(1.0/count(st.order_id))
+from MONSTORE.store s, Monstore.ordertable o, 
+Monstore.customer c, Monstore.order_items ot
+where ot.order_id = o.order_id and 
+s.store_id = o.store_id and
+o.customer_id = c.customer_id
+group by s.store_id, c.customer_id, ot.product_id, ot.order_id
+order by s.store_id, c.customer_id, ot.product_id, ot.order_id;
+
+select * from orderfact2;
+*/
+
+DROP TABLE orderfact2_temp;
+
+CREATE TABLE orderfact2_temp
+    AS
+        SELECT
+            s.store_id,
+            c.customer_id,
+            ot.order_id,
+            LISTAGG(ot.product_id, '_') WITHIN GROUP(
+            ORDER BY
+                ot.order_id
+            ) AS productgrouplistid
+        FROM
+            monstore.store       s,
+            monstore.ordertable  o,
+            monstore.customer    c,
+            monstore.order_items ot
+        WHERE
+                ot.order_id = o.order_id
+            AND s.store_id = o.store_id
+            AND o.customer_id = c.customer_id
+        GROUP BY
+            s.store_id,
+            c.customer_id,
+            ot.order_id;
+
+CREATE TABLE orderfact2
+    AS
+        SELECT
+            s.store_id,
+            c.customer_id,
+            f.order_id,
+            f.productgrouplistid,
+            COUNT(f.order_id) AS number_of_orders
+        FROM
+            monstore.store      s,
+            monstore.ordertable o,
+            monstore.customer   c,
+            orderfact2_temp     f
+        WHERE
+                f.order_id = o.order_id
+            AND s.store_id = o.store_id
+            AND o.customer_id = c.customer_id
+        GROUP BY
+            s.store_id,
+            c.customer_id,
+            f.order_id,
+            f.productgrouplistid
+        ORDER BY
+            s.store_id,
+            c.customer_id,
+            f.order_id,
+            f.productgrouplistid;
+
+SELECT
+    *
+FROM
+    orderfact2;
 
